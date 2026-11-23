@@ -240,6 +240,27 @@
     }
     .drink-options { margin-top: 12px; }
     .drink-options[hidden] { display: none !important; }
+
+    .privacy-note {
+      margin: 18px 0 12px; padding: 14px 16px;
+      border: 1px solid var(--panel-border); border-radius: 10px;
+      background: var(--panel); color: var(--text);
+      font: 12px/1.6 Arial,sans-serif;
+    }
+    .privacy-note p { margin: 5px 0 0; color: var(--muted); }
+    .consent-line {
+      display: flex; align-items: flex-start; gap: 10px;
+      margin: 12px 0 18px; color: var(--text);
+      font: 12px/1.55 Arial,sans-serif; cursor: pointer;
+    }
+    .consent-line input { flex: 0 0 auto; margin-top: 2px; accent-color: var(--gold-deep); }
+    .submit:disabled { opacity: .65; cursor: wait; }
+    .submit-error {
+      display: none; margin-top: 12px; padding: 12px 14px;
+      border: 1px solid #d88; border-radius: 8px;
+      color: var(--text); background: rgba(150,20,30,.18);
+      font: 13px/1.5 Arial,sans-serif;
+    }
 </style>
 </head>
 <body>
@@ -328,6 +349,16 @@
           </div>
           <div id="peopleFields"></div>
 
+
+          <div class="privacy-note">
+            <strong>Privacy</strong>
+            <p>I dati inseriti saranno utilizzati esclusivamente dagli organizzatori per gestire le richieste di partecipazione e ricontattare il referente. Non saranno visibili agli altri partecipanti.</p>
+          </div>
+          <label class="consent-line">
+            <input type="checkbox" id="privacyConsent" required>
+            <span>Confermo di aver informato le persone del gruppo e di avere il loro consenso a inviare i dati inseriti per la gestione della richiesta.</span>
+          </label>
+
           <div class="notice">
             <strong>Nota:</strong> l'invio del modulo costituisce una richiesta di accesso e non una conferma di partecipazione. Gli organizzatori vi contatteranno per comunicare l'esito. La location verrà comunicata privatamente.
           </div>
@@ -391,7 +422,7 @@
             <label class="drink-toggle">
               <input type="checkbox" class="drink-toggle-input"
                 onchange="this.closest('.drink-preference').querySelector('.drink-options').hidden = !this.checked">
-              <span>Desidero indicare bevande analcoliche</span>
+              <span>Desidero indicare le bevande analcoliche</span>
             </label>
             <div class="drink-options" hidden>
               <fieldset><legend>Bevande analcoliche desiderate — selezione multipla</legend><div class="choices">${drinkChoices}</div></fieldset>
@@ -401,16 +432,16 @@
             <label class="drink-toggle">
               <input type="checkbox" class="drink-toggle-input"
                 onchange="this.closest('.drink-preference').querySelector('.drink-options').hidden = !this.checked">
-              <span>Desidero indicare bevande alcoliche</span>
+              <span>Desidero indicare altre bevande analcoliche</span>
             </label>
             <div class="drink-options" hidden>
               <fieldset>
-                <legend>Bevande alcoliche — selezione multipla</legend>
+                <legend>Altre bevande analcoliche — selezione multipla</legend>
                 <div class="choices">
-                  <label class="choice"><input type="checkbox" name="person${i}_other_drinks" value="Opzione 1"> Vodka</label>
-                  <label class="choice"><input type="checkbox" name="person${i}_other_drinks" value="Opzione 2"> Rum</label>
-                  <label class="choice"><input type="checkbox" name="person${i}_other_drinks" value="Opzione 3"> Montenegro</label>
-                  <label class="choice"><input type="checkbox" name="person${i}_other_drinks" value="Opzione 4"> Jägermeister</label>
+                  <label class="choice"><input type="checkbox" name="person${i}_other_drinks" value="Opzione 1"> Opzione 1</label>
+                  <label class="choice"><input type="checkbox" name="person${i}_other_drinks" value="Opzione 2"> Opzione 2</label>
+                  <label class="choice"><input type="checkbox" name="person${i}_other_drinks" value="Opzione 3"> Opzione 3</label>
+                  <label class="choice"><input type="checkbox" name="person${i}_other_drinks" value="Opzione 4"> Opzione 4</label>
                 </div>
               </fieldset>
             </div>
@@ -422,13 +453,72 @@
     document.getElementById('groupSize').addEventListener('change', renderPeople);
     renderPeople();
 
-    // Anteprima frontend: non invia ancora i dati a un archivio o agli organizzatori.
-    document.getElementById('bookingForm').addEventListener('submit', (event) => {
+    // Invio sicuro al backend Supabase. Inserire qui l'URL della propria Edge Function.
+    const SUBMIT_ENDPOINT = 'https://sjxvtvcizbamnrvuospt.supabase.co/functions/v1/submit-booking';
+    const bookingForm = document.getElementById('bookingForm');
+    const submitButton = bookingForm.querySelector('.submit');
+    const submitError = document.createElement('div');
+    submitError.className = 'submit-error';
+    submitError.setAttribute('role', 'alert');
+    submitButton.insertAdjacentElement('afterend', submitError);
+
+    function collectBooking() {
+      const count = Number(document.getElementById('groupSize').value);
+      const participants = [];
+      for (let i = 1; i <= count; i++) {
+        const card = peopleFields.children[i - 1];
+        const value = (name) => card.querySelector(`[name="person${i}_${name}"]`)?.value?.trim() || '';
+        const checked = (name) => [...card.querySelectorAll(`[name="person${i}_${name}"]:checked`)].map(el => el.value);
+        const softToggle = card.querySelectorAll('.drink-toggle-input')[0];
+        const otherToggle = card.querySelectorAll('.drink-toggle-input')[1];
+        participants.push({
+          full_name: value('name'),
+          instagram: value('instagram'),
+          age: Number(value('age')),
+          soft_drinks: softToggle?.checked ? checked('drinks') : [],
+          other_soft_drinks: otherToggle?.checked ? checked('other_drinks') : []
+        });
+      }
+      return {
+        contact_name: document.getElementById('contactName').value.trim(),
+        contact: document.getElementById('contact').value.trim(),
+        group_size: count,
+        participants,
+        privacy_consent: document.getElementById('privacyConsent').checked
+      };
+    }
+
+    bookingForm.addEventListener('submit', async (event) => {
       event.preventDefault();
-      if (!event.currentTarget.reportValidity()) return;
-      document.querySelector('.submit').style.display = 'none';
-      document.getElementById('confirmation').classList.add('show');
-      document.getElementById('confirmation').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      submitError.style.display = 'none';
+      if (!bookingForm.reportValidity()) return;
+
+      if (!SUBMIT_ENDPOINT.includes('.supabase.co/functions/v1/')) {
+        submitError.textContent = 'Il modulo non è ancora collegato al database. Completa prima la configurazione Supabase indicata nel file README.';
+        submitError.style.display = 'block';
+        return;
+      }
+
+      submitButton.disabled = true;
+      submitButton.textContent = 'Invio in corso…';
+      try {
+        const response = await fetch(SUBMIT_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(collectBooking())
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || 'Invio non riuscito. Riprova tra poco.');
+        submitButton.style.display = 'none';
+        document.getElementById('confirmation').classList.add('show');
+        document.getElementById('confirmation').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        bookingForm.reset();
+      } catch (error) {
+        submitError.textContent = error.message || 'Si è verificato un errore. Riprova.';
+        submitError.style.display = 'block';
+        submitButton.disabled = false;
+        submitButton.textContent = 'Invia richiesta';
+      }
     });
 
     // Piccoli fuochi d'artificio decorativi su canvas.
